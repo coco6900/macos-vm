@@ -1,4 +1,4 @@
-name: macos-with-vnc
+name: macos-with-cloudflare-vnc
 on: 
   workflow_dispatch:
 defaults:
@@ -11,17 +11,30 @@ jobs:
     steps:
 
     - name: Checkout repository
-      uses: actions/checkout@v2
-    
-    - name: Setting the environment up.
+      uses: actions/checkout@v4
+
+    - name: Configure macOS VNC
       env:
-        NGROK_AUTH_TOKEN: ${{ secrets.NGROK_AUTH_TOKEN }}
         VNC_USER_PASSWORD: ${{ secrets.VNC_USER_PASSWORD }}
         VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
-      run: source configure.sh "$VNC_USER_PASSWORD" "$VNC_PASSWORD" "$NGROK_AUTH_TOKEN"
-    
-    - name: ngrok is now listening to VNC connections on...
-      run: curl --silent http://127.0.0.1:4040/api/tunnels | jq '.tunnels[0].public_url'
-    
-    - name: Setup tmate session
-      uses: mxschmitt/action-tmate@v2
+      run: |
+        # On lance le script de config original mais sans ngrok
+        # On passe un token bidon car le script configure.sh l'attend en 3ème argument
+        source configure.sh "$VNC_USER_PASSWORD" "$VNC_PASSWORD" "dummy_token"
+
+    - name: Install and Start Cloudflare Tunnel
+      run: |
+        brew install cloudflared
+        echo "Démarrage du tunnel Cloudflare..."
+        # On tunnelise le port VNC par défaut (5900)
+        (cloudflared tunnel --url tcp://localhost:5900 > cloudflare.log 2>&1) &
+        
+        # On attend que l'URL soit générée
+        sleep 10
+        URL=$(grep -Eo 'https://[-a-z0-9]+\.trycloudflare\.com' cloudflare.log | tail -n1)
+        echo "----------------------------------------------------------"
+        echo "ADRESSE DE CONNEXION : $URL"
+        echo "----------------------------------------------------------"
+
+    - name: Keep Alive with tmate
+      uses: mxschmitt/action-tmate@v3
