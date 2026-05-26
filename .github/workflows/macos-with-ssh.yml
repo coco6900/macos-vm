@@ -1,4 +1,4 @@
-name: macos-with-ssh
+name: macos-with-cloudflare-ssh
 on: 
   workflow_dispatch:
 defaults:
@@ -11,7 +11,36 @@ jobs:
     steps:
 
     - name: Checkout repository
-      uses: actions/checkout@v2
-    
-    - name: Setup tmate session
-      uses: mxschmitt/action-tmate@v2
+      uses: actions/checkout@v4
+
+    - name: Configure macOS SSH User
+      env:
+        VNC_USER_PASSWORD: ${{ secrets.VNC_USER_PASSWORD }}
+      run: |
+        # Création de l'utilisateur 'vncuser' pour la connexion SSH
+        sudo dscl . -create /Users/vncuser
+        sudo dscl . -create /Users/vncuser UserShell /bin/bash
+        sudo dscl . -create /Users/vncuser RealName "VNC User"
+        sudo dscl . -create /Users/vncuser UniqueID 501
+        sudo dscl . -create /Users/vncuser PrimaryGroupID 20
+        sudo dscl . -create /Users/vncuser NFSHomeDirectory /Users/vncuser
+        sudo dscl . -passwd /Users/vncuser "$VNC_USER_PASSWORD"
+        sudo dscl . -append /Groups/admin GroupMembership vncuser
+        echo "Utilisateur vncuser configuré avec succès."
+
+    - name: Start Cloudflare SSH Tunnel
+      run: |
+        brew install cloudflared
+        echo "Démarrage du tunnel Cloudflare sur le port 22..."
+        # On tunnelise le flux SSH (port 22) en TCP
+        (cloudflared tunnel --url tcp://localhost:22 > cloudflare.log 2>&1) &
+        
+        # On attend que l'URL soit générée dans le log
+        sleep 15
+        URL=$(grep -Eo 'https://[-a-z0-9]+\.trycloudflare\.com' cloudflare.log | tail -n1)
+        echo "----------------------------------------------------------"
+        echo "ADRESSE DE CONNEXION SSH : $URL"
+        echo "----------------------------------------------------------"
+
+    - name: Setup tmate session (Backup access)
+      uses: mxschmitt/action-tmate@v3
